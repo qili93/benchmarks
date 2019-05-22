@@ -385,6 +385,33 @@ flags.DEFINE_string('debugger', None,
 flags.DEFINE_boolean('use_python32_barrier', False,
                      'When on, use threading.Barrier at Python 3.2.')
 
+# enable LMS parameters
+flags.DEFINE_boolean('lms', False,
+                     'Whether use large model support (LMS) or not.')
+flags.DEFINE_integer('lms_swapout_threshold', -1,
+                     'if the topological-sort distance between the '
+                     'consuming operation and generating operation of a '
+                     'tensor is greater (>) than `swapout_threshold`, then '
+                     'trigger swapping the tensor. Default `-1` (auto mode)')
+flags.DEFINE_integer('lms_swapin_groupby', -1,
+                     'consuming operations whose distances among them are '
+                     'within `swapin_groupby` share the same swap-in '
+                     'operation. Default `-1` (auto mode).')
+flags.DEFINE_integer('lms_swapin_ahead', -1,
+                     'lower-bound value for LMS. A tensor will be swapped in '
+                      'during the backward phase at least `swapin_ahead` nodes '
+                      'before it in the graph. Default `-1` (auto mode).')
+flags.DEFINE_integer('lms_sync_mode', 0,
+                     'whether to do synchronization between data transfer and '
+                     'kernel computation or not. Four modes: `0` turn off. '
+                     '`1` sync for only swap-out ops. `2` sync for only '
+                     'swap-in ops. `3` sync for both swap-out and swap-in ops. '
+                     'Default `0` (no sync)')
+flags.DEFINE_boolean('lms_debug', False,
+                     'Debug mode for LMS.')
+flags.DEFINE_integer('lms_debug_level', 1,
+                     'Debug level for LMS. 1 or 2')
+
 flags.DEFINE_boolean('ml_perf', False,
                      'When True, change how the Imagenet input pipeline works '
                      'slightly to meet the MLPerf compliance rules. This slows '
@@ -2816,6 +2843,7 @@ class BenchmarkCNN(object):
         if phase_train:
           losses.append(results['loss'])
           device_grads.append(results['gradvars'])
+          self._update_model_for_lms(results['loss'].device)
         else:
           all_logits.append(results['logits'])
         if not phase_train or self.params.print_training_accuracy:
@@ -3097,6 +3125,25 @@ class BenchmarkCNN(object):
     else:
       global_input_producer_op = None
     return (global_input_producer_op, enqueue_ops, fetches)
+
+  def _update_model_for_lms(self, gpu_device):
+    if self.params.lms:
+      # Check for usage of TFLMSv1 from github.com/IBM/tensorflow-large-model-support
+      try:
+        from tensorflow_large_model_support.lms import CTRLD_Strategy
+        raise DeprecationWarning('This script only supports TensorFlow Large Model Support >= 2.0.0.')
+      except ImportError:
+        pass
+      from tensorflow_large_model_support import LMS
+      lms_model = LMS(swapout_threshold=self.params.lms_swapout_threshold,
+                      swapin_groupby=self.params.lms_swapin_groupby,
+                      swapin_ahead=self.params.lms_swapin_ahead,
+                      sync_mode=self.params.lms_sync_mode,
+                      debug=self.params.lms_debug,
+                      debug_level=self.params.lms_debug_level,
+                      cpu_device=self.cpu_device,
+                      gpu_device=gpu_device)
+      lms_model.run(tf.get_default_graph())
 
   def add_forward_pass_and_gradients(self,
                                      phase_train,
