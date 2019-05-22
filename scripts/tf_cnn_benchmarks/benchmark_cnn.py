@@ -55,6 +55,7 @@ from tensorflow.python import debug as tf_debug
 from tensorflow.python.client import timeline
 from tensorflow.python.framework import graph_util
 from tensorflow.python.framework import graph_util_impl
+from tensorflow.python.framework import ops
 from tensorflow.python.framework import importer
 from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.platform import gfile
